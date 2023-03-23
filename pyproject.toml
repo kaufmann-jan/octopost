@@ -1,0 +1,22 @@
+[project]
+name = "octopost"
+version = "0.1.0"
+description = "Read files from OpenFOAM postProcessing and convert to Pandas DataFrame"
+authors = [
+    {name = "Jan Kaufmann", email = "kaufmann@gmx.net"},
+]
+dependencies = [
+    "numpy",
+    "pandas"
+]
+requires-python = ">=3.7"
+readme = "README.md"
+license = {text = "GPLv3"}
+
+[project.urls]
+"Homepage" = "https://github.com/kaufmann-jan/octopost"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
