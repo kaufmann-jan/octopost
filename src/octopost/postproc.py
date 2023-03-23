@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from pandas.errors import ParserError
 
-from handling import list_time_dirs,parse_of,dummy_columns
+from octopost.handling import list_time_dirs,parse_of,dummy_columns
 
 def makeRuntimeSelectableReader(reader_name,base_dir,case_dir=None):
     
