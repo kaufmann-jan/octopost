@@ -1,10 +1,14 @@
 [project]
 name = "octopost"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Read files from OpenFOAM postProcessing and convert to Pandas DataFrame"
 authors = [
     {name = "Jan Kaufmann", email = "kaufmann@gmx.net"},
 ]
+
+[tool.setuptools.dynamic]
+version = {attr = "octopost.__version__"}
+
 dependencies = [
     "numpy",
     "pandas"
