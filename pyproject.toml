@@ -21,6 +21,6 @@ license = {text = "GPLv3"}
 "Homepage" = "https://github.com/kaufmann-jan/octopost"
 
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
