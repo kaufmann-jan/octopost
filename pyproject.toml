@@ -6,9 +6,6 @@ authors = [
     {name = "Jan Kaufmann", email = "kaufmann@gmx.net"},
 ]
 
-[tool.setuptools.dynamic]
-version = {attr = "octopost.__version__"}
-
 dependencies = [
     "numpy",
     "pandas"
@@ -24,3 +21,5 @@ license = {text = "GPLv3"}
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.dynamic]
+version = {attr = "octopost.__version__"}
