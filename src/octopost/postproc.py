@@ -272,7 +272,7 @@ class OpenFOAMrigidBodyState(OpenFOAMpostProcessing):
         
         self.subtractInitialCoG = subtractInitialCoG
 
-        names = ['time','x','y','z','roll','pitch','yaw','vx','vy','vz','vroll','vpitch','vyaw','xvcorr','yvcorr','zvcorr']
+        names = ['time','x','y','z','roll','pitch','yaw','vx','vy','vz','vroll','vpitch','vyaw']
         
         super().__init__(base_dir=base_dir,file_name=file_name,names=names,usecols=None,case_dir=case_dir,tmin=tmin,tmax=tmax)
         
@@ -408,8 +408,8 @@ class OpenFOAMactuatorDisk(OpenFOAMpostProcessing):
     
     def __init__(self,base_dir='actuatorDisk',file_name='actuatorDisk.dat',case_dir=None):
 
-        names = ['time','thrust','torque','vp','va','n','J','FD']
-        usecols = ['time','thrust','torque','vp','va','n','J','FD']
+        names = ['time','thrust','torque','vp','va','n','J','FD','alphacorrThrust','alphacorrTorque','fillgrade']
+        usecols = ['time','thrust','torque','vp','va','n','J','FD','alphacorrThrust','alphacorrTorque','fillgrade']
         
         try:
             super().__init__(base_dir=base_dir, file_name=file_name, names=names, usecols=usecols, case_dir=case_dir)
@@ -430,7 +430,7 @@ def rigidBodyState(file_name='hull.dat',case_dir=None,tmin=None,tmax=None):
     return OpenFOAMrigidBodyState(file_name=file_name,case_dir=case_dir,tmin=tmin,tmax=tmax).data
 
 def time(base_dir='timeMonitor',case_dir=None,drop_columns=['cpu','clock']):
-    return OpenFOAMtime(base_dir=base_dir,case_dir=case_dir).data.drop(columns=drop_columns).data
+    return OpenFOAMtime(base_dir=base_dir,case_dir=case_dir).data.drop(columns=drop_columns)
 
 def actuatorDisk(base_dir='actuatorDisk',file_name='actuatorDisk.dat',case_dir=None):
     return OpenFOAMactuatorDisk(base_dir=base_dir,file_name=file_name,case_dir=case_dir).data

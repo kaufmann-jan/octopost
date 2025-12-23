@@ -6,7 +6,8 @@ import time
 from octopost import __version__
 print(f"Octopost version: {__version__}")
 
-from octopost.postproc import forces,residuals,actuatorDisk
+from octopost.postproc import forces,residuals,actuatorDisk,rigidBodyState
+from octopost.postproc import time as pp_time
 
 def main():
     
@@ -24,13 +25,18 @@ def main():
     elapsed = time.perf_counter() - t0
     print(f"forces() execution time: {elapsed:.6f} s")
     print(f)
-
-    if False:    
-        r = residuals(case_dir=case_dir)
-        print(r)
         
-        ad = actuatorDisk(case_dir=case_dir, base_dir='actuatorDisk1')
-        print(ad)
+    r = residuals(case_dir=case_dir)
+    print(r)
+        
+    ad = actuatorDisk(case_dir=case_dir, base_dir='actuatorDisk1')
+    print(ad)
+    
+    rbs = rigidBodyState(case_dir=case_dir, file_name='hull.dat')
+    print(rbs)
+    
+    t = pp_time(case_dir=case_dir)
+    print(t)
     
     
 if __name__ == "__main__":
