@@ -13,9 +13,8 @@ def list_time_dirs(path_to_time_dirs):
     
     Returns
     -------
-    
-    list with time dir names as strings in sorted order
-    
+    l : list of pathlib.Path
+        list of paths to time directories sorted in ascending order
     """
     
     l = sorted([str(x.name) for x in Path(path_to_time_dirs).glob('[0-9]*')],key=float,reverse=False)
@@ -23,7 +22,7 @@ def list_time_dirs(path_to_time_dirs):
     
     return l
 
-def parse_of(file_name,names,usecols=None):
+def parse_of(file_name,names=None,usecols=None):
     """Opens a text file, replaces all brackets, i.e. () with 
     whitespaces, passes a file stream to the pandas csv read method
     and returns a pandas DataFrame.  
@@ -41,7 +40,8 @@ def parse_of(file_name,names,usecols=None):
         
     Returns
     -------
-    pandas DataFrame
+    df : pandas.DataFrame
+        DataFrame containing the data from the text file
     
     """
     
@@ -52,7 +52,14 @@ def parse_of(file_name,names,usecols=None):
     with path.open('r') as f:
         fstream = StringIO(f.read().translate(trantab))
     
-    df = pd.read_csv(fstream,delim_whitespace=True,header=None,names=names,comment='#',usecols=usecols)
+    df = pd.read_csv(
+        fstream,
+        sep=r"\s+",
+        header=None,
+        names=names,
+        comment='#',
+        usecols=usecols
+    )
 
     return df
 
