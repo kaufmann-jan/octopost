@@ -10,7 +10,27 @@ from pandas.errors import ParserError
 from octopost.handling import list_time_dirs,parse_of,dummy_columns
 
 def makeRuntimeSelectableReader(reader_name,base_dir,case_dir=None):
+    """
+    Factory function to create OpenFOAM postprocessing readers.
     
+    Parameters
+    ----------
+    reader_name : str
+        Name of the reader class to instantiate. Must be one of the
+        OpenFOAM postprocessing reader classes defined in this module,
+        e.g. 'OpenFOAMforces', 'OpenFOAMresiduals', etc
+    base_dir : str or Path
+        Base directory inside the OpenFOAM case 'postProcessing' folder
+    case_dir : str or Path, optional
+        Path to the OpenFOAM case directory. If None, the current working
+        directory is used. Default is None.
+        
+    Returns
+    -------
+    reader : OpenFOAMpostProcessing
+        An instance of the requested OpenFOAM postprocessing reader class.
+    """
+            
     if case_dir is None:
         case_dir = Path.cwd()
     
@@ -24,7 +44,11 @@ def makeRuntimeSelectableReader(reader_name,base_dir,case_dir=None):
     return reader
 
 class OpenFOAMpostProcessing(object):
-
+    """
+    Base class for OpenFOAM postprocessing data readers.
+    """
+    SORT_ORDER = {'time':-1}
+    
     def combine_oftime_files(self,file_name,names,usecols):      
 
         time_dirs = list_time_dirs(self.base_dir)
@@ -90,6 +114,29 @@ class OpenFOAMpostProcessing(object):
         return str(self.data.head())
     
     def __init__(self,base_dir,file_name,names=None,usecols=None,case_dir=None,tmin=None,tmax=None):
+        """
+        Parameters
+        ----------
+        base_dir : str or Path
+            Base directory inside the OpenFOAM case 'postProcessing' folder
+        file_name : str
+            Name of the file inside each time directory to read, e.g. 'forces.dat'
+        names : list of str, optional
+            List of column names to use when reading the data file. If None,
+            default names are used. Default is None.
+        usecols : list of str, optional
+            List of column names to read from the data file. If None, all columns
+            are read. Default is None.
+        case_dir : str or Path, optional
+            Path to the OpenFOAM case directory. If None, the current working
+            directory is used. Default is None.
+        tmin : float, optional
+            Minimum time value to filter the data. If None, no minimum time
+            filtering is applied. Default is None.
+        tmax : float, optional
+            Maximum time value to filter the data. If None, no maximum time
+            filtering is applied. Default is None.
+        """
         
         self.mtime = 0
         self.up_to_date = False
@@ -357,9 +404,9 @@ class OpenFOAMvp(OpenFOAMpostProcessing):
         
         super().__init__(base_dir=base_dir, file_name=file_name, names=names, usecols=usecols, case_dir=case_dir)
         
-class OpenFOAMactuatorDiskLog(OpenFOAMpostProcessing):
+class OpenFOAMactuatorDisk(OpenFOAMpostProcessing):
     
-    def __init__(self,base_dir='actuatorDisk',file_name='actuatorDiskLog.dat',case_dir=None):
+    def __init__(self,base_dir='actuatorDisk',file_name='actuatorDisk.dat',case_dir=None):
 
         names = ['time','thrust','torque','vp','va','n','J','FD']
         usecols = ['time','thrust','torque','vp','va','n','J','FD']
@@ -384,6 +431,9 @@ def rigidBodyState(file_name='hull.dat',case_dir=None,tmin=None,tmax=None):
 
 def time(base_dir='timeMonitor',case_dir=None,drop_columns=['cpu','clock']):
     return OpenFOAMtime(base_dir=base_dir,case_dir=case_dir).data.drop(columns=drop_columns).data
+
+def actuatorDisk(base_dir='actuatorDisk',file_name='actuatorDisk.dat',case_dir=None):
+    return OpenFOAMactuatorDisk(base_dir=base_dir,file_name=file_name,case_dir=case_dir).data
 
 def waveBuoy(base_dir='waveBuoy',file_name='height.dat',case_dir=None,tmin=None,tmax=None):
     return OpenFOAMwaveBuoy(base_dir=base_dir,file_name=file_name,case_dir=case_dir,tmin=tmin,tmax=tmax).data
