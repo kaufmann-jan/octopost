@@ -6,8 +6,8 @@ import time
 from octopost import __version__
 print(f"Octopost version: {__version__}")
 
-from octopost.postproc import forces,residuals,actuatorDisk,rigidBodyState
-from octopost.postproc import time as pp_time
+from octopost.reader import forces,residuals,actuatorDisk,rigidBodyState
+from octopost.reader import time as pp_time
 
 def main():
     
