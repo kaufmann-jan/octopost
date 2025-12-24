@@ -31,3 +31,4 @@ var/
 pip-log.txt
 pip-delete-this-directory.txt
 __pycache__
+resume_last_codex_session
