@@ -48,6 +48,7 @@ class OpenFOAMpostProcessing(object):
     Base class for OpenFOAM postprocessing data readers.
     """
     SORT_ORDER = {'time':-1}
+    stats = None
     
     def combine_oftime_files(self,file_name,names,usecols):      
 
@@ -201,6 +202,66 @@ class OpenFOAMpostProcessing(object):
         
         if self.tmax is not None:
             self.data = self.data[self.data['time'] < self.tmax]
+
+    def describe_stats(self, time_range=None):
+        """
+        Return summary stats for non-time columns.
+
+        Parameters
+        ----------
+        time_range : None, scalar, tuple/list len 2, or list of len-2 tuples/lists
+            None uses the full time range. A scalar is treated as the lower bound.
+            A (start, end) pair selects a bounded range; use None for open ends.
+            A list of ranges computes stats for each range.
+
+        Returns
+        -------
+        pandas.DataFrame or list of dict
+            Summary stats (count, min, max, mean). For multiple ranges, a list of
+            dicts with keys 'time_range' and 'stats' is returned.
+        """
+
+        df = self.get_data()
+
+        def normalize_ranges(value):
+            if value is None:
+                return [(None, None)]
+            if isinstance(value, (int, float, np.number)):
+                return [(value, None)]
+            if isinstance(value, (list, tuple)):
+                if len(value) == 2 and not (
+                    isinstance(value[0], (list, tuple)) or isinstance(value[1], (list, tuple))
+                ):
+                    return [tuple(value)]
+                if len(value) > 0 and all(
+                    isinstance(item, (list, tuple)) and len(item) == 2 for item in value
+                ):
+                    return [tuple(item) for item in value]
+            raise ValueError("time_range must be None, scalar, len-2 range, or list of ranges")
+
+        ranges = normalize_ranges(time_range)
+        results = []
+
+        print(ranges)
+
+        for start, end in ranges:
+            subset = df
+            if start is not None:
+                subset = subset.loc[subset['time'] >= start]
+            if end is not None:
+                subset = subset.loc[subset['time'] <= end]
+
+            data = subset.drop(columns=['time'], errors='ignore')
+            stats = data.agg(['count', 'min', 'max', 'mean'])
+            stats = stats.reindex(['count', 'min', 'max', 'mean'])
+            results.append({'time_range': (start, end), 'stats': stats})
+
+        if len(results) == 1:
+            self.stats = results[0]['stats']
+            return self.stats
+
+        self.stats = results
+        return self.stats
 
 
 class OpenFOAMforces(OpenFOAMpostProcessing):

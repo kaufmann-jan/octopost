@@ -6,6 +6,7 @@ import time
 from octopost import __version__
 print(f"Octopost version: {__version__}")
 
+from octopost.reader import OpenFOAMforces
 from octopost.reader import forces,residuals,actuatorDisk,rigidBodyState
 from octopost.reader import time as pp_time
 
@@ -37,6 +38,11 @@ def main():
     
     t = pp_time(case_dir=case_dir)
     print(t)
+    
+    f = OpenFOAMforces(case_dir=case_dir, file_name='forces.dat')
+    #print(f.data)
+    print(f.describe_stats())
+    print(f.describe_stats(time_range=[(500,None),(None,100)]))
     
     
 if __name__ == "__main__":
