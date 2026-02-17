@@ -35,6 +35,7 @@ df = forces(case_dir="/path/to/case")
 from octopost.reader import (
     OpenFOAMforces,
     OpenFOAMresiduals,
+    OpenFOAMsectionalForces,
     OpenFOAMrigidBodyState,
     OpenFOAMtime,
     OpenFOAMfieldMinMax,
@@ -60,6 +61,7 @@ df = res.get_data()
 from octopost.reader import (
     residuals,
     forces,
+    sectionalForces,
     rigidBodyState,
     time,
     actuatorDisk,

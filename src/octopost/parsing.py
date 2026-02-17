@@ -1,6 +1,6 @@
-from io import StringIO
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 def list_time_dirs(path_to_time_dirs):
@@ -23,9 +23,12 @@ def list_time_dirs(path_to_time_dirs):
     return l
 
 def parse_of(file_name,names=None,usecols=None):
-    """Opens a text file, replaces all brackets, i.e. () with 
-    whitespaces, passes a file stream to the pandas csv read method
-    and returns a pandas DataFrame.  
+    """Parse OpenFOAM table-like output into a DataFrame.
+
+    The parser is width-aware: it determines the maximum number of tokens per
+    data line and pads shorter lines with NaN. This handles files where early
+    lines have fewer fields (e.g. residuals at start-up) without requiring
+    fixed dummy column counts.
     
     Parameters
     ----------
@@ -46,41 +49,56 @@ def parse_of(file_name,names=None,usecols=None):
     """
     
     trantab = str.maketrans('()','  ')
+    rows = []
 
     path = Path(file_name)
 
-    with path.open('r') as f:
-        fstream = StringIO(f.read().translate(trantab))
-    
-    df = pd.read_csv(
-        fstream,
-        sep=r"\s+",
-        header=None,
-        names=names,
-        comment='#',
-        usecols=usecols
-    )
+    with path.open('r', encoding='utf-8', errors='ignore') as f:
+        for line in f:
+            if line.lstrip().startswith('#'):
+                continue
+
+            s = line.translate(trantab).strip()
+            if not s:
+                continue
+
+            rows.append(s.split())
+
+    if not rows:
+        if names is not None:
+            return pd.DataFrame(columns=names)
+        return pd.DataFrame()
+
+    max_cols = max(len(r) for r in rows)
+
+    if names is None:
+        col_names = ['time'] + [f'c{i}' for i in range(1, max_cols)]
+    else:
+        col_names = list(names)
+        if len(col_names) < max_cols:
+            col_names.extend([f'c_extra{i}' for i in range(max_cols - len(col_names))])
+
+    n_cols = max(max_cols, len(col_names))
+    padded_rows = [r + [np.nan] * (n_cols - len(r)) for r in rows]
+
+    if len(col_names) < n_cols:
+        col_names.extend([f'c_extra{i}' for i in range(n_cols - len(col_names))])
+
+    df = pd.DataFrame(padded_rows, columns=col_names)
+    df = df.apply(pd.to_numeric, errors='coerce')
+
+    if usecols is not None:
+        if callable(usecols):
+            selected = [c for c in df.columns if usecols(c)]
+            df = df.loc[:, selected]
+        else:
+            usecols_list = list(usecols)
+            if usecols_list and all(isinstance(c, int) for c in usecols_list):
+                df = df.iloc[:, usecols_list]
+            else:
+                df = df.loc[:, usecols_list]
 
     return df
-
-def dummy_columns(n=99):
-    """Generates a list of dummy column names for OpenFOAM data files.
-    
-    Parameters
-    ----------
-    n : int, optional
-        Number of dummy columns to generate (excluding the 'time' column). Default is 99.
-        
-    Returns
-    -------
-    names : list of str
-        List of dummy column names, starting with 'time' followed by 'c0', '
-        c1', ..., 'c{n-1}'.
-    """
-    
-    names = ['time'] + ['c' + str(x) for x in range(n)]
-    
-    return names 
 
 def filter_time_and_columns(df, time_start=None,time_end=None, data_subset=None):
     """Filtering time and sub-selecting data columns.

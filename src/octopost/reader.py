@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from io import StringIO
+import re
 import sys
 from pathlib import Path
 
@@ -7,7 +9,7 @@ import numpy as np
 import pandas as pd
 from pandas.errors import ParserError
 
-from octopost.parsing import list_time_dirs,parse_of,dummy_columns
+from octopost.parsing import list_time_dirs,parse_of
 
 def makeRuntimeSelectableReader(reader_name,base_dir,case_dir=None):
     """
@@ -55,11 +57,6 @@ class OpenFOAMpostProcessing(object):
         time_dirs = list_time_dirs(self.base_dir)
             
         if not time_dirs:
-            # no time dirs found, empty case!!!
-            # if self.names == dummy_columns():
-                # self.data = pd.DataFrame(columns={'time':[]})
-            # else:
-                # self.data = pd.DataFrame(columns=self.names)
             self.data = pd.DataFrame()
             return
         
@@ -158,17 +155,7 @@ class OpenFOAMpostProcessing(object):
         
         self.tmin,self.tmax = tmin,tmax
                 
-        if names is None:
-            # instead of just passing names=None to pd.read_csv() we create a dummy
-            # names list with ['time', 'c1', ... 'c89'], because:
-            # 1. we want to explicitly name column 0 to 'time'
-            # 2. with header=None, names=None and usecols=None reading of the 
-            #    OpenFOAM residual files fails due to the first line 
-            #    showing only one entry N/A for Ux Uy Uz, i.e. number of columns
-            #    determined by pandas does not match the number of data fields
-            self.names = dummy_columns()
-        else:
-            self.names = names
+        self.names = names
         
         self.usecols = usecols
         
@@ -481,6 +468,169 @@ class OpenFOAMactuatorDisk(OpenFOAMpostProcessing):
             super().__init__(base_dir=base_dir, file_name=file_name, names=names, usecols=usecols, case_dir=case_dir)
 
 
+class OpenFOAMsectionalForces(OpenFOAMpostProcessing):
+
+    def __init__(
+        self,
+        base_dir='sectionalLoads',
+        file_name='rigidBodySectionalForceProbes.dat',
+        case_dir=None,
+        tmin=None,
+        tmax=None,
+        sep=' ',
+    ):
+        self.sep = sep
+        self.SORT_ORDER = {'time': -1}
+        super().__init__(
+            base_dir=base_dir,
+            file_name=file_name,
+            names=None,
+            usecols=None,
+            case_dir=case_dir,
+            tmin=tmin,
+            tmax=tmax,
+        )
+
+    def _read_coordinate_count_from_header(self):
+        coord_pattern = re.compile(r"^\s*#\s*Coordinate\s+(\d+)\s*:")
+        time_dirs = list_time_dirs(Path(self.base_dir))
+
+        for td in time_dirs:
+            p = Path(td, self.file_name)
+            if not p.exists():
+                continue
+
+            coord_indices = []
+            with p.open('r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    if line.lstrip().startswith('#'):
+                        m = coord_pattern.match(line)
+                        if m:
+                            coord_indices.append(int(m.group(1)))
+                    else:
+                        break
+
+            if coord_indices:
+                return max(coord_indices) + 1
+
+        return None
+
+    def _build_column_names(self, n_coords):
+        components = ['x', 'y', 'z']
+        quantities = [
+            'Fluid Force',
+            'Body Force',
+            'Total Force',
+            'Fluid Moment',
+            'Body Moment',
+            'Total Moment',
+        ]
+
+        names = ['time']
+        for s in range(n_coords):
+            for quantity in quantities:
+                for component in components:
+                    names.append(f"S{s}{self.sep}{quantity}{self.sep}{component}")
+
+        return names
+
+    def combine_oftime_files(self, file_name, names, usecols):
+        time_dirs = list_time_dirs(self.base_dir)
+
+        if not time_dirs:
+            self.data = pd.DataFrame()
+            return
+
+        current_mtime = np.amax([Path(td, file_name).stat().st_mtime for td in time_dirs])
+
+        if current_mtime == self.mtime:
+            self.up_to_date = True
+            return
+
+        self.up_to_date = False
+        self.mtime = current_mtime
+
+        tmp_data = []
+        trantab = str.maketrans('()', '  ')
+
+        for td in time_dirs:
+            p = Path(td, file_name)
+            with p.open('r', encoding='utf-8', errors='ignore') as f:
+                content = f.read().translate(trantab)
+
+            df = pd.read_csv(
+                StringIO(content),
+                sep=r"\s+",
+                header=None,
+                comment='#',
+            )
+
+            try:
+                tmp_data.append(df.set_index(0))
+            except KeyError:
+                tmp_data.append(df.set_index('time'))
+
+        d = tmp_data[-1]
+        if len(tmp_data) > 1:
+            for i in reversed(tmp_data[:-1]):
+                if i.index.array[-1] > d.index.array[-1]:
+                    i = i[i.index < d.index.array[-1]]
+                d = d.combine_first(i)
+
+        # combine_first() can leave a highly fragmented frame; copy() defragments
+        # before adding the index back as a column.
+        self.data = d.copy()
+        self.data.reset_index(inplace=True)
+
+    def customize(self):
+        OpenFOAMpostProcessing.customize(self)
+
+        if not self.data.empty and self.usecols is None:
+            self.data.dropna(how='all', axis=1, inplace=True)
+
+            n_cols = self.data.shape[1]
+            if n_cols < 2:
+                raise ValueError(
+                    f"Unexpected column count ({n_cols}) in file: {self.file_name}"
+                )
+
+            n_after_time = n_cols - 1
+            per_coord = 18  # 6 vectors * 3 components
+
+            n_coords = self._read_coordinate_count_from_header()
+            if n_coords is None:
+                if n_after_time % per_coord != 0:
+                    raise ValueError(
+                        "Cannot infer number of coordinates: "
+                        f"columns after time = {n_after_time} is not divisible by {per_coord}."
+                    )
+                n_coords = n_after_time // per_coord
+            else:
+                expected = n_coords * per_coord
+                if n_after_time != expected:
+                    raise ValueError(
+                        f"Header indicates {n_coords} coordinates -> expected {1 + expected} "
+                        f"columns, but found {n_cols}."
+                    )
+
+            self.usecols = self._build_column_names(n_coords)
+
+            if len(self.usecols) != n_cols:
+                raise RuntimeError(
+                    f"Internal mismatch: built {len(self.usecols)} column names, "
+                    f"file has {n_cols} columns."
+                )
+
+            for i, col in enumerate(self.usecols[1:], start=0):
+                self.SORT_ORDER[col] = i
+
+            mapper = dict(zip(self.data.columns, self.usecols))
+            self.data.rename(columns=mapper, inplace=True)
+
+        self.time_range()
+        self.sort_fields()
+
+
 def residuals(base_dir='residuals',case_dir=None):
     return OpenFOAMresiduals(base_dir=base_dir,case_dir=case_dir).data
 
@@ -498,6 +648,9 @@ def actuatorDisk(base_dir='actuatorDisk',file_name='actuatorDisk.dat',case_dir=N
 
 def waveBuoy(base_dir='waveBuoy',file_name='height.dat',case_dir=None,tmin=None,tmax=None):
     return OpenFOAMwaveBuoy(base_dir=base_dir,file_name=file_name,case_dir=case_dir,tmin=tmin,tmax=tmax).data
+
+def sectionalForces(base_dir='sectionalLoads',file_name='rigidBodySectionalForceProbes.dat',case_dir=None,tmin=None,tmax=None,sep=' '):
+    return OpenFOAMsectionalForces(base_dir=base_dir,file_name=file_name,case_dir=case_dir,tmin=tmin,tmax=tmax,sep=sep).data
 
 def main():
 
