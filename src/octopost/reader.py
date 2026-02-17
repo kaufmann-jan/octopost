@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-from io import StringIO
 import re
 import sys
 from pathlib import Path
@@ -88,7 +87,9 @@ class OpenFOAMpostProcessing(object):
                         i = i[i.index < d.index.array[-1]]
                     d = d.combine_first(i)
             
-            self.data = d
+            # combine_first() can leave a highly fragmented frame; copy()
+            # defragments before adding the index back as a column.
+            self.data = d.copy()
             self.data.reset_index(inplace=True)
 
 
@@ -293,12 +294,52 @@ class OpenFOAMforces(OpenFOAMpostProcessing):
 class OpenFOAMwaveBuoy(OpenFOAMpostProcessing):
     
     def __init__(self,base_dir='waveBuoy',file_name='height.dat',case_dir=None,tmin=None,tmax=None):
-        
+        self.locations = []
         super().__init__(base_dir=base_dir, file_name=file_name, names=None, usecols=None, case_dir=case_dir, tmin=tmin, tmax=tmax)
+
+    def _read_locations_from_header(self):
+        loc_pattern = re.compile(r"^\s*#\s*Location\s+(\d+)\s*:\s*(.*)\s*$")
+        time_dirs = list_time_dirs(Path(self.base_dir))
+
+        for td in time_dirs:
+            p = Path(td, self.file_name)
+            if not p.exists():
+                continue
+
+            loc_values = {}
+            with p.open('r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    if not line.lstrip().startswith('#'):
+                        break
+
+                    m = loc_pattern.match(line)
+                    if m:
+                        idx = int(m.group(1))
+                        raw = m.group(2).replace('(', ' ').replace(')', ' ').strip()
+                        parts = raw.split()
+                        try:
+                            values = tuple(float(x) for x in parts)
+                        except ValueError:
+                            values = tuple(parts)
+                        loc_values[idx] = values
+
+            if loc_values:
+                n_locs = max(loc_values.keys()) + 1
+                locations = [np.nan] * n_locs
+                for idx, value in loc_values.items():
+                    locations[idx] = value
+                return locations
+
+        return []
 
     def customize(self):
         OpenFOAMpostProcessing.customize(self)
         
+        if self.data.empty:
+            self.locations = []
+            return
+
+        self.locations = self._read_locations_from_header()
         self.data.dropna(how='all',axis=1,inplace=True)
         
         # get only the height above the location, i. e. every second entry
@@ -307,6 +348,16 @@ class OpenFOAMwaveBuoy(OpenFOAMpostProcessing):
         
         mapDict = {key:f'buoy{i}' for i,key in enumerate(list(self.data)[1:]) }
         self.data.rename(columns=mapDict,inplace=True)
+
+        n_buoys = len(self.data.columns) - 1
+        if not self.locations:
+            self.locations = [np.nan] * n_buoys
+        elif len(self.locations) < n_buoys:
+            self.locations.extend([np.nan] * (n_buoys - len(self.locations)))
+        elif len(self.locations) > n_buoys:
+            self.locations = self.locations[:n_buoys]
+
+        self.data.attrs['locations'] = self.locations
         
         
         self.time_range()    
@@ -480,6 +531,7 @@ class OpenFOAMsectionalForces(OpenFOAMpostProcessing):
         sep=' ',
     ):
         self.sep = sep
+        self.coordinates = []
         self.SORT_ORDER = {'time': -1}
         super().__init__(
             base_dir=base_dir,
@@ -491,8 +543,24 @@ class OpenFOAMsectionalForces(OpenFOAMpostProcessing):
             tmax=tmax,
         )
 
-    def _read_coordinate_count_from_header(self):
-        coord_pattern = re.compile(r"^\s*#\s*Coordinate\s+(\d+)\s*:")
+    @staticmethod
+    def _parse_coordinate_value(raw_value):
+        cleaned = raw_value.replace('(', ' ').replace(')', ' ').strip()
+        if not cleaned:
+            return np.nan
+
+        parts = cleaned.split()
+        try:
+            nums = [float(p) for p in parts]
+        except ValueError:
+            return cleaned
+
+        if len(nums) == 1:
+            return nums[0]
+        return tuple(nums)
+
+    def _read_coordinates_from_header(self):
+        coord_pattern = re.compile(r"^\s*#\s*Coordinate\s+(\d+)\s*:\s*(.*)\s*$")
         time_dirs = list_time_dirs(Path(self.base_dir))
 
         for td in time_dirs:
@@ -500,20 +568,25 @@ class OpenFOAMsectionalForces(OpenFOAMpostProcessing):
             if not p.exists():
                 continue
 
-            coord_indices = []
+            coord_values = {}
             with p.open('r', encoding='utf-8', errors='ignore') as f:
                 for line in f:
                     if line.lstrip().startswith('#'):
                         m = coord_pattern.match(line)
                         if m:
-                            coord_indices.append(int(m.group(1)))
+                            idx = int(m.group(1))
+                            coord_values[idx] = self._parse_coordinate_value(m.group(2))
                     else:
                         break
 
-            if coord_indices:
-                return max(coord_indices) + 1
+            if coord_values:
+                n_coords = max(coord_values.keys()) + 1
+                coordinates = [np.nan] * n_coords
+                for idx, value in coord_values.items():
+                    coordinates[idx] = value
+                return n_coords, coordinates
 
-        return None
+        return None, []
 
     def _build_column_names(self, n_coords):
         components = ['x', 'y', 'z']
@@ -534,54 +607,6 @@ class OpenFOAMsectionalForces(OpenFOAMpostProcessing):
 
         return names
 
-    def combine_oftime_files(self, file_name, names, usecols):
-        time_dirs = list_time_dirs(self.base_dir)
-
-        if not time_dirs:
-            self.data = pd.DataFrame()
-            return
-
-        current_mtime = np.amax([Path(td, file_name).stat().st_mtime for td in time_dirs])
-
-        if current_mtime == self.mtime:
-            self.up_to_date = True
-            return
-
-        self.up_to_date = False
-        self.mtime = current_mtime
-
-        tmp_data = []
-        trantab = str.maketrans('()', '  ')
-
-        for td in time_dirs:
-            p = Path(td, file_name)
-            with p.open('r', encoding='utf-8', errors='ignore') as f:
-                content = f.read().translate(trantab)
-
-            df = pd.read_csv(
-                StringIO(content),
-                sep=r"\s+",
-                header=None,
-                comment='#',
-            )
-
-            try:
-                tmp_data.append(df.set_index(0))
-            except KeyError:
-                tmp_data.append(df.set_index('time'))
-
-        d = tmp_data[-1]
-        if len(tmp_data) > 1:
-            for i in reversed(tmp_data[:-1]):
-                if i.index.array[-1] > d.index.array[-1]:
-                    i = i[i.index < d.index.array[-1]]
-                d = d.combine_first(i)
-
-        # combine_first() can leave a highly fragmented frame; copy() defragments
-        # before adding the index back as a column.
-        self.data = d.copy()
-        self.data.reset_index(inplace=True)
-
     def customize(self):
         OpenFOAMpostProcessing.customize(self)
 
@@ -597,7 +622,8 @@ class OpenFOAMsectionalForces(OpenFOAMpostProcessing):
             n_after_time = n_cols - 1
             per_coord = 18  # 6 vectors * 3 components
 
-            n_coords = self._read_coordinate_count_from_header()
+            n_coords, coordinates = self._read_coordinates_from_header()
+            self.coordinates = coordinates
             if n_coords is None:
                 if n_after_time % per_coord != 0:
                     raise ValueError(
@@ -605,6 +631,8 @@ class OpenFOAMsectionalForces(OpenFOAMpostProcessing):
                         f"columns after time = {n_after_time} is not divisible by {per_coord}."
                     )
                 n_coords = n_after_time // per_coord
+                if not self.coordinates:
+                    self.coordinates = [np.nan] * n_coords
             else:
                 expected = n_coords * per_coord
                 if n_after_time != expected:
@@ -627,6 +655,7 @@ class OpenFOAMsectionalForces(OpenFOAMpostProcessing):
             mapper = dict(zip(self.data.columns, self.usecols))
             self.data.rename(columns=mapper, inplace=True)
 
+        self.data.attrs['coordinates'] = self.coordinates
         self.time_range()
         self.sort_fields()
 
