@@ -529,8 +529,10 @@ class OpenFOAMsectionalForces(OpenFOAMpostProcessing):
         tmin=None,
         tmax=None,
         sep=' ',
+        quantity='total',
     ):
         self.sep = sep
+        self.quantity = quantity
         self.coordinates = []
         self.SORT_ORDER = {'time': -1}
         super().__init__(
@@ -588,9 +590,9 @@ class OpenFOAMsectionalForces(OpenFOAMpostProcessing):
 
         return None, []
 
-    def _build_column_names(self, n_coords):
+    def _build_column_names(self, n_coords, quantities=None):
         components = ['x', 'y', 'z']
-        quantities = [
+        all_quantities = [
             'Fluid Force',
             'Body Force',
             'Total Force',
@@ -598,6 +600,8 @@ class OpenFOAMsectionalForces(OpenFOAMpostProcessing):
             'Body Moment',
             'Total Moment',
         ]
+        if quantities is None:
+            quantities = all_quantities
 
         names = ['time']
         for s in range(n_coords):
@@ -606,6 +610,28 @@ class OpenFOAMsectionalForces(OpenFOAMpostProcessing):
                     names.append(f"S{s}{self.sep}{quantity}{self.sep}{component}")
 
         return names
+
+    def _selected_quantities(self):
+        selection = str(self.quantity).strip().lower()
+        mapper = {
+            'fluid': ['Fluid Force', 'Fluid Moment'],
+            'body': ['Body Force', 'Body Moment'],
+            'total': ['Total Force', 'Total Moment'],
+            'all': [
+                'Fluid Force',
+                'Body Force',
+                'Total Force',
+                'Fluid Moment',
+                'Body Moment',
+                'Total Moment',
+            ],
+        }
+        if selection not in mapper:
+            raise ValueError(
+                f"Unsupported quantity selection: {self.quantity}. "
+                "Use one of: 'fluid', 'body', 'total', 'all'."
+            )
+        return mapper[selection]
 
     def customize(self):
         OpenFOAMpostProcessing.customize(self)
@@ -641,19 +667,26 @@ class OpenFOAMsectionalForces(OpenFOAMpostProcessing):
                         f"columns, but found {n_cols}."
                     )
 
-            self.usecols = self._build_column_names(n_coords)
+            full_columns = self._build_column_names(n_coords)
 
-            if len(self.usecols) != n_cols:
+            if len(full_columns) != n_cols:
                 raise RuntimeError(
-                    f"Internal mismatch: built {len(self.usecols)} column names, "
+                    f"Internal mismatch: built {len(full_columns)} column names, "
                     f"file has {n_cols} columns."
                 )
 
-            for i, col in enumerate(self.usecols[1:], start=0):
-                self.SORT_ORDER[col] = i
-
-            mapper = dict(zip(self.data.columns, self.usecols))
+            mapper = dict(zip(self.data.columns, full_columns))
             self.data.rename(columns=mapper, inplace=True)
+
+            selected_quantities = self._selected_quantities()
+            selected_columns = self._build_column_names(n_coords, quantities=selected_quantities)
+            self.usecols = selected_columns
+
+            self.data = self.data.loc[:, selected_columns]
+
+            self.SORT_ORDER = {'time': -1}
+            for i, col in enumerate(selected_columns[1:], start=0):
+                self.SORT_ORDER[col] = i
 
         self.data.attrs['coordinates'] = self.coordinates
         self.time_range()
@@ -678,8 +711,8 @@ def actuatorDisk(base_dir='actuatorDisk',file_name='actuatorDisk.dat',case_dir=N
 def waveBuoy(base_dir='waveBuoy',file_name='height.dat',case_dir=None,tmin=None,tmax=None):
     return OpenFOAMwaveBuoy(base_dir=base_dir,file_name=file_name,case_dir=case_dir,tmin=tmin,tmax=tmax).data
 
-def sectionalForces(base_dir='sectionalLoads',file_name='rigidBodySectionalForceProbes.dat',case_dir=None,tmin=None,tmax=None,sep=' '):
-    return OpenFOAMsectionalForces(base_dir=base_dir,file_name=file_name,case_dir=case_dir,tmin=tmin,tmax=tmax,sep=sep).data
+def sectionalForces(base_dir='sectionalLoads',file_name='rigidBodySectionalForceProbes.dat',case_dir=None,tmin=None,tmax=None,sep=' ',quantity='total'):
+    return OpenFOAMsectionalForces(base_dir=base_dir,file_name=file_name,case_dir=case_dir,tmin=tmin,tmax=tmax,sep=sep,quantity=quantity).data
 
 def main():
 
