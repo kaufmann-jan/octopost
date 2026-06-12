@@ -6,8 +6,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from pandas.errors import ParserError
-
 from octopost.parsing import list_time_dirs,parse_of
 
 def makeRuntimeSelectableReader(reader_name,base_dir,case_dir=None):
@@ -504,19 +502,54 @@ class OpenFOAMvp(OpenFOAMpostProcessing):
         super().__init__(base_dir=base_dir, file_name=file_name, names=names, usecols=usecols, case_dir=case_dir)
         
 class OpenFOAMactuatorDisk(OpenFOAMpostProcessing):
+
+    SCHEMAS = {
+        12: ['time','thrust','duct_thrust','torque','vp','va','n','J','FD','alphacorrThrust','alphacorrTorque','fillgrade'],
+        11: ['time','thrust','torque','vp','va','n','J','FD','alphacorrThrust','alphacorrTorque','fillgrade'],
+        7: ['time','thrust','torque','vp','va','n','FD'],
+    }
     
     def __init__(self,base_dir='actuatorDisk',file_name='actuatorDisk.dat',case_dir=None,tmin=None,tmax=None):
 
-        names = ['time','thrust','torque','vp','va','n','J','FD','alphacorrThrust','alphacorrTorque','fillgrade']
-        usecols = ['time','thrust','torque','vp','va','n','J','FD','alphacorrThrust','alphacorrTorque','fillgrade']
-        
+        if case_dir is None:
+            case_dir = Path.cwd()
+
+        post_dir = Path(case_dir,'postProcessing',base_dir)
+        n_cols = self._read_column_count(post_dir, file_name)
         try:
-            super().__init__(base_dir=base_dir, file_name=file_name, names=names, usecols=usecols, case_dir=case_dir, tmin=tmin, tmax=tmax)
-        except ParserError as e:
-            names = ['time','thrust','torque','vp','va','n','FD']
-            usecols = ['time','thrust','torque','vp','va','n','FD']
-            
-            super().__init__(base_dir=base_dir, file_name=file_name, names=names, usecols=usecols, case_dir=case_dir, tmin=tmin, tmax=tmax)
+            names = self.SCHEMAS[n_cols]
+        except KeyError:
+            supported = ', '.join(str(k) for k in sorted(self.SCHEMAS))
+            raise ValueError(
+                f"Unsupported actuatorDisk column count ({n_cols}) in {file_name}. "
+                f"Expected one of: {supported}."
+            )
+
+        super().__init__(
+            base_dir=base_dir,
+            file_name=file_name,
+            names=names,
+            usecols=names,
+            case_dir=case_dir,
+            tmin=tmin,
+            tmax=tmax,
+        )
+
+    @staticmethod
+    def _read_column_count(base_dir, file_name):
+        for td in list_time_dirs(base_dir):
+            p = Path(td,file_name)
+            if not p.exists():
+                continue
+
+            trantab = str.maketrans('()','  ')
+            with p.open('r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    if line.lstrip().startswith('#') or not line.strip():
+                        continue
+                    return len(line.translate(trantab).split())
+
+        raise ValueError(f"No numeric data found in actuatorDisk file: {Path(base_dir,file_name)}")
 
     def customize(self):
         OpenFOAMpostProcessing.customize(self)
