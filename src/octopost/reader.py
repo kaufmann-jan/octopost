@@ -504,7 +504,7 @@ class OpenFOAMvp(OpenFOAMpostProcessing):
 class OpenFOAMactuatorDisk(OpenFOAMpostProcessing):
 
     SCHEMAS = {
-        12: ['time','thrust','duct_thrust','torque','vp','va','n','J','FD','alphacorrThrust','alphacorrTorque','fillgrade'],
+        12: ['time','thrust','torque','vp','va','n','J','FD','alphacorrThrust','alphacorrTorque','fillgrade','duct_thrust'],
         11: ['time','thrust','torque','vp','va','n','J','FD','alphacorrThrust','alphacorrTorque','fillgrade'],
         7: ['time','thrust','torque','vp','va','n','FD'],
     }
