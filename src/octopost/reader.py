@@ -59,7 +59,7 @@ class OpenFOAMpostProcessing(object):
         
         current_mtime = np.amax([Path(td,file_name).stat().st_mtime for td in time_dirs])
         
-        verbose = True
+        verbose = False  # only for debugging purposes
         if current_mtime == self.mtime: # no need to reload
             if verbose: print('no need to reload, we are up to date')
             self.up_to_date = True
